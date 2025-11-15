@@ -1,0 +1,10 @@
+.env
+/venv
+__pycache__/
+*.pyc
+data/*
+chroma_db/*
+ocr_cache/*
+!data/.gitkeep
+!chroma_db/.gitkeep
+!ocr_cache/.gitkeep
