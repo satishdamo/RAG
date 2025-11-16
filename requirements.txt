@@ -6,7 +6,7 @@ python-dotenv
 langchain==0.1.14
 chromadb==0.4.22
 transformers==4.38.2
-torch==2.2.2
+torch>=2.5.0
 fastapi==0.110.0
 uvicorn==0.29.0
 sentence-transformers==2.5.1
