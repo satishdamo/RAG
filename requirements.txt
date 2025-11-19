@@ -12,3 +12,4 @@ uvicorn==0.29.0
 sentence-transformers==2.5.1
 openai
 pytesseract
+PyMuPDF>=1.23.0
