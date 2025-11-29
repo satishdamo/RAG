@@ -1,6 +1,6 @@
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
@@ -27,8 +27,7 @@ Answer:
 
 
 def load_vectorstore():
-    embedding = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2")
+    embedding = OpenAIEmbeddings()
     return Chroma(persist_directory=VECTOR_DB_ROOT, embedding_function=embedding)
 
 

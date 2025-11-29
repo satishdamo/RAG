@@ -5,11 +5,9 @@ passlib[bcrypt]
 python-dotenv
 langchain==0.1.14
 chromadb==0.4.22
-transformers==4.38.2
-torch>=2.5.0
 fastapi==0.110.0
 uvicorn==0.29.0
-sentence-transformers==2.5.1
 openai
 pytesseract
 PyMuPDF>=1.23.0
+tiktoken>=0.3.0

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from utils import caption_image, extract_text_with_fitz_ocr
 from langchain.schema import Document
 
@@ -37,8 +37,7 @@ def ingest_pdf(pdf_path: str):
         chunk_size=1500, chunk_overlap=200)
     docs = splitter.split_documents([Document(page_content=all_text)])
 
-    embedding = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2")
+    embedding = OpenAIEmbeddings()
     vectordb = Chroma.from_documents(
         documents=docs, embedding=embedding, persist_directory=VECTOR_DB_ROOT)
     vectordb.persist()
@@ -113,8 +112,7 @@ def ingest_pdf_with_images(pdf_path: str):
             docs.append(Document(page_content=chunk, metadata=metadata))
 
     # 3. Embed and persist chunks
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2")
+    embeddings = OpenAIEmbeddings()
     vectordb = Chroma.from_documents(
         docs, embedding=embeddings, persist_directory=VECTOR_DB_ROOT)
     vectordb.persist()

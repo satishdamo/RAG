@@ -1,13 +1,14 @@
 import pytesseract
 import base64
 import io
-import torch
 from PIL import Image
 import fitz
-from transformers import BlipProcessor, BlipForConditionalGeneration
-
 import hashlib
 import os
+from openai import OpenAI
+
+# Initialize OpenAI client (expects OPENAI_API_KEY in environment)
+client = OpenAI()
 
 OCR_CACHE_DIR = "ocr_cache"
 os.makedirs(OCR_CACHE_DIR, exist_ok=True)
@@ -20,6 +21,10 @@ def get_pdf_hash(pdf_path: str) -> str:
 
 
 def extract_text_with_fitz_ocr(pdf_path: str) -> str:
+    """
+    Extract text from PDF using PyMuPDF + Tesseract OCR.
+    Results cached by PDF hash to avoid repeated OCR.
+    """
     pdf_hash = get_pdf_hash(pdf_path)
     cache_path = os.path.join(OCR_CACHE_DIR, f"{pdf_hash}.txt")
 
@@ -42,6 +47,9 @@ def extract_text_with_fitz_ocr(pdf_path: str) -> str:
 
 
 def is_answer_confident(answer: str) -> tuple[bool, float]:
+    """
+    Simple heuristic: check fallback phrases and token length.
+    """
     fallback_phrases = ["i'm not sure", "i do not know",
                         "cannot answer", "no relevant context"]
     lowered = answer.lower()
@@ -54,27 +62,31 @@ def is_answer_confident(answer: str) -> tuple[bool, float]:
     return True, round(score, 2)
 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-processor = BlipProcessor.from_pretrained(
-    "Salesforce/blip-image-captioning-base")
-model = BlipForConditionalGeneration.from_pretrained(
-    "Salesforce/blip-image-captioning-base").to(device)
-
-
 def caption_image(image_bytes: bytes) -> dict:
     """
     Takes raw image bytes and returns a dictionary with:
-    - caption: BLIP-generated description
+    - caption: OpenAI-generated description
     - image_base64: base64-encoded PNG preview
     """
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    inputs = processor(image, return_tensors="pt").to(device)
-    out = model.generate(**inputs,  max_new_tokens=50)
-    caption = processor.decode(out[0], skip_special_tokens=True)
+    img_str = base64.b64encode(image_bytes).decode("utf-8")
 
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image in one sentence."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{img_str}"}
+                    }
+                ],
+            }
+        ],
+    )
+
+    caption = response.choices[0].message.content
 
     return {
         "caption": caption,

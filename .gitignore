@@ -8,3 +8,4 @@ ocr_cache/*
 !data/.gitkeep
 !chroma_db/.gitkeep
 !ocr_cache/.gitkeep
+reference.txt

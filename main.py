@@ -2,23 +2,20 @@ from langchain.chains import RetrievalQA
 from langchain.chains.question_answering import load_qa_chain
 from langchain.llms import OpenAI
 from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from fastapi.responses import HTMLResponse
 from fastapi import Query, FastAPI, UploadFile, File, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from auth import authenticate_user, create_access_token, get_current_user
 from rag_pipeline import build_qa_chain_with_memory
 from ingest import ingest_pdf, extract_images_with_captions, ingest_pdf_with_images
-from utils import extract_text_with_fitz_ocr
+from utils import extract_text_with_fitz_ocr, caption_image
 import shutil
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# LangChain imports used by the admin ingest endpoint
-
-# Simple defaults used by the admin endpoint; adjust paths/registry as needed
 VECTOR_DB_ROOT = os.environ.get("VECTOR_DB_ROOT", "chroma_db")
 vectorstore_registry = {}
 
@@ -26,7 +23,6 @@ app = FastAPI()
 qa_chain = build_qa_chain_with_memory()
 session_store = {}
 
-# --- cached public vectordb / QA chain (initialized at app startup) ---
 public_vectordb = None
 public_qa_chain = None
 
@@ -34,32 +30,23 @@ public_qa_chain = None
 def init_public_rag():
     """
     Initialize and cache the persisted Chroma vectorstore and a RetrievalQA chain.
-    Called at application startup. If VECTOR_DB_ROOT does not exist, leaves the
-    globals as None (service will return 503 until admin ingests).
     """
     global public_vectordb, public_qa_chain
 
     if public_vectordb is not None and public_qa_chain is not None:
-        return  # already initialized
+        return
 
     if not os.path.isdir(VECTOR_DB_ROOT):
-        # no vector DB persisted yet; admin must ingest
         print(
             f"[startup] Vector DB not found at {VECTOR_DB_ROOT}; public RAG unavailable")
         return
 
-    # create embeddings and load persisted Chroma
-    embeddings_model = os.environ.get(
-        "VECTOR_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-    embeddings = HuggingFaceEmbeddings(model_name=embeddings_model)
+    embeddings = OpenAIEmbeddings()
     vectordb = Chroma(persist_directory=VECTOR_DB_ROOT,
                       embedding_function=embeddings)
 
-    # build retriever + QA chain (temperature 0 for deterministic answers)
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
     llm = OpenAI(temperature=0)
-
-    # or "map_reduce", "refine", etc.
     qa_chain = load_qa_chain(llm, chain_type="stuff")
 
     qa = RetrievalQA(combine_documents_chain=qa_chain, retriever=retriever,
@@ -89,7 +76,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     token = create_access_token(
         {"sub": user["username"], "role": user["role"]})
 
-    # ✅ Safe initialization
     username = user["username"]
     if username not in session_store:
         session_store[username] = {
@@ -107,7 +93,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 async def upload_pdf(file: UploadFile = File(...), user=Depends(get_current_user)):
     username = user["username"]
 
-    # ✅ Ensure session exists
     if username not in session_store:
         session_store[username] = {
             "captions": [],
@@ -148,7 +133,6 @@ async def ask_question(q: str, user=Depends(get_current_user)):
         user_data = session_store.get(user["username"], {})
         captions = user_data.get("captions", [])
 
-        # Fallback: regenerate captions if missing
         if not captions and "file_path" in user_data:
             captions = extract_images_with_captions(user_data["file_path"])
             session_store[user["username"]]["captions"] = captions
@@ -206,11 +190,6 @@ async def preview_html(file: UploadFile = File(...), user=Depends(get_current_us
                 padding: 2em;
                 background: #f9f9f9;
                 color: #333;
-                transition: background 0.3s, color 0.3s;
-            }}
-            .dark-mode {{
-                background: #1e1e1e;
-                color: #eee;
             }}
             h1 {{ margin-top: 2em; }}
             .caption {{ margin-top: 1em; font-weight: bold; }}
@@ -223,28 +202,9 @@ async def preview_html(file: UploadFile = File(...), user=Depends(get_current_us
                 overflow-x: auto;
                 white-space: pre-wrap;
             }}
-            .dark-mode pre {{
-                background: #2e2e2e;
-                border-color: #444;
-            }}
-            .controls {{
-                position: fixed;
-                top: 10px;
-                right: 10px;
-            }}
-            button {{
-                margin-left: 10px;
-                padding: 0.5em 1em;
-                font-size: 14px;
-                cursor: pointer;
-            }}
         </style>
     </head>
     <body>
-        <div class="controls">
-            <button onclick="toggleDarkMode()">Toggle Dark Mode</button>
-            <button onclick="downloadText()">Download Text</button>
-        </div>
         <h1>Extracted Text</h1>
         <pre id="text-block">{extracted_text[:5000]}</pre>
         <h1>Image Captions</h1>
@@ -258,44 +218,20 @@ async def preview_html(file: UploadFile = File(...), user=Depends(get_current_us
         </div>
         """
 
-    html += """
-        <script>
-            function toggleDarkMode() {
-                document.body.classList.toggle('dark-mode');
-            }
-            function downloadText() {
-                const text = document.getElementById('text-block').innerText;
-                const blob = new Blob([text], { type: 'text/plain' });
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                link.download = 'extracted_text.txt';
-                link.click();
-            }
-        </script>
-    </body>
-    </html>
-    """
+    html += "</body></html>"
 
     return HTMLResponse(content=html)
-
-# Public, no-auth endpoint for front-end chat widget to query admin-ingested RAG
 
 
 @app.get("/public-ask/")
 async def public_ask(q: str):
-    """
-    Public, no-auth endpoint that answers using the admin-ingested persisted vector DB.
-    If the vector DB isn't available returns 503 so front-end can show a friendly message.
-    """
     if public_qa_chain is None or public_vectordb is None:
         raise HTTPException(
             status_code=503, detail="Public RAG is not available. Admin must ingest documents.")
 
     try:
-        # run QA chain to produce the textual answer
         result = public_qa_chain.invoke({"query": q})
         answer = result.get("result", "")
-        # fetch the retrieved documents for transparency
         docs = result.get("source_documents", [])
     except Exception as e:
         raise HTTPException(
