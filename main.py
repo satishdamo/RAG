@@ -92,6 +92,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/upload-pdf/")
 async def upload_pdf(file: UploadFile = File(...), user=Depends(get_current_user)):
     username = user["username"]
+    print("User:", user)
+    print("File:", file.filename if file else "None")
 
     if username not in session_store:
         session_store[username] = {
