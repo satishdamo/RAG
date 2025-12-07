@@ -9,3 +9,6 @@ chroma_db/*
 ocr_cache/*
 !ocr_cache/.gitkeep
 reference.txt
+render-build.sh
+BACKUP_*
+pinecone_test.py

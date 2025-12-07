@@ -1,13 +1,13 @@
 from langchain.chains import RetrievalQA
 from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import OpenAI
-from langchain.vectorstores import Chroma
+from langchain_openai import OpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from fastapi.responses import HTMLResponse
 from fastapi import Query, FastAPI, UploadFile, File, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
+from langchain_pinecone import Pinecone, PineconeVectorStore
 from auth import authenticate_user, create_access_token, get_current_user
-from rag_pipeline import build_qa_chain_with_memory
+from rag_pipeline import PINECONE_INDEX_NAME, build_qa_chain_with_memory
 from ingest import ingest_pdf, extract_images_with_captions, ingest_pdf_with_images
 from utils import extract_text_with_fitz_ocr, caption_image
 import shutil
@@ -15,9 +15,6 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
-VECTOR_DB_ROOT = os.environ.get("VECTOR_DB_ROOT", "chroma_db")
-vectorstore_registry = {}
 
 app = FastAPI()
 qa_chain = build_qa_chain_with_memory()
@@ -29,22 +26,16 @@ public_qa_chain = None
 
 def init_public_rag():
     """
-    Initialize and cache the persisted Chroma vectorstore and a RetrievalQA chain.
+    Initialize and cache the persisted Pinecone vectorstore and a RetrievalQA chain.
     """
     global public_vectordb, public_qa_chain
 
     if public_vectordb is not None and public_qa_chain is not None:
         return
 
-    if not os.path.isdir(VECTOR_DB_ROOT):
-        print(
-            f"[startup] Vector DB not found at {VECTOR_DB_ROOT}; public RAG unavailable")
-        return
-
     embeddings = OpenAIEmbeddings()
-    vectordb = Chroma(persist_directory=VECTOR_DB_ROOT,
-                      embedding_function=embeddings)
-
+    vectordb = PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME, embedding=embeddings)
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
     llm = OpenAI(temperature=0)
     qa_chain = load_qa_chain(llm, chain_type="stuff")
@@ -54,9 +45,6 @@ def init_public_rag():
 
     public_vectordb = vectordb
     public_qa_chain = qa
-    vectorstore_registry[VECTOR_DB_ROOT] = vectordb
-    print(
-        f"[startup] Loaded public vector DB from {VECTOR_DB_ROOT} and initialized QA chain")
 
 
 @app.on_event("startup")
@@ -214,7 +202,7 @@ async def preview_html(file: UploadFile = File(...), user=Depends(get_current_us
         html += f"""
         <div class="image">
             <div class="caption">Page {item['page']}: {item['caption']}</div>
-            <img src="data:image/png;base64,{item['image_base64']}" />
+            <img src="{item['image_url']}" />
         </div>
         """
 
@@ -232,6 +220,9 @@ async def public_ask(q: str):
     try:
         result = public_qa_chain.invoke({"query": q})
         answer = result.get("result", "")
+        # if answer includes I don't know or similar, then no need to include snippets in the response
+        if "i don't know" in answer.lower() or "i am not sure" in answer.lower():
+            return {"answer": answer, "retrieved": []}
         docs = result.get("source_documents", [])
     except Exception as e:
         raise HTTPException(

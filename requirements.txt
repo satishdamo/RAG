@@ -3,11 +3,13 @@ Pillow
 python-jose
 passlib[bcrypt]
 python-dotenv
-langchain==0.1.14
-chromadb==0.4.22
+langchain<=0.1.0
 fastapi==0.110.0
 uvicorn==0.29.0
 openai
 pytesseract
 PyMuPDF>=1.23.0
 tiktoken>=0.3.0
+langchain-openai
+langchain-pinecone
+boto3

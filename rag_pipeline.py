@@ -1,19 +1,29 @@
+import os
 from langchain.prompts import PromptTemplate
-from langchain.vectorstores import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
-import os
 from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from utils import is_answer_confident
+
 load_dotenv()
 
+PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
+PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
+PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME")
 
-VECTOR_DB_ROOT = os.environ.get("VECTOR_DB_ROOT", "chroma_db")
+if not PINECONE_API_KEY:
+    raise RuntimeError("PINECONE_API_KEY is required. Set it in your .env")
 
-qa_prompt = PromptTemplate.from_template("""
+if not PINECONE_ENVIRONMENT:
+    raise RuntimeError("PINECONE_ENVIRONMENT is required. Set it in your .env")
+
+
+qa_prompt = PromptTemplate.from_template(
+    """
 You are a helpful assistant. Use only the context below to answer the question.
 If the answer is not in the context, say "Sorry, I don't know. Please try some other query."
 Provide as much detail as possible from the context.
@@ -23,12 +33,20 @@ Context:
 
 Question: {question}
 Answer:
-""")
+"""
+)
+
+
+# def _init_pinecone():
+#     pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
+#     return pc
 
 
 def load_vectorstore():
-    embedding = OpenAIEmbeddings()
-    return Chroma(persist_directory=VECTOR_DB_ROOT, embedding_function=embedding)
+    embeddings = OpenAIEmbeddings()
+    vector_store = PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME, embedding=embeddings)
+    return vector_store
 
 
 def build_qa_chain_with_memory():
@@ -42,7 +60,7 @@ def build_qa_chain_with_memory():
         llm=llm,
         retriever=retriever,
         memory=memory,
-        combine_docs_chain_kwargs={"prompt": qa_prompt}
+        combine_docs_chain_kwargs={"prompt": qa_prompt},
     )
 
     def guarded_chain(inputs):
@@ -55,7 +73,7 @@ def build_qa_chain_with_memory():
             return {
                 "answer": "I'm not sure.",
                 "confidence_score": 0.0,
-                "retrieved_chunks": []
+                "retrieved_chunks": [],
             }
 
         result = chain({"question": question})
@@ -65,7 +83,10 @@ def build_qa_chain_with_memory():
         return {
             "answer": answer if confident else "I'm not sure.",
             "confidence_score": score,
-            "retrieved_chunks": [doc.page_content[:500] for doc in filtered_docs] if confident else []
+            "retrieved_chunks": (
+                [doc.page_content[:500]
+                    for doc in filtered_docs] if confident else []
+            ),
         }
 
     return guarded_chain

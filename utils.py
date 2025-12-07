@@ -6,11 +6,44 @@ import fitz
 import hashlib
 import os
 from openai import OpenAI
+import boto3
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Initialize S3 client
+s3 = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    region_name=os.getenv("AWS_DEFAULT_REGION")
+)
+
+
+def upload_base64_image(base64_string, key, public=True):
+    # Decode base64 string
+    image_bytes = base64.b64decode(base64_string)
+    # Upload to S3
+    s3.put_object(
+        Bucket=os.getenv("AWS_S3_BUCKET_NAME"),
+        Key=key,
+        Body=image_bytes,
+        ContentType="image/png",  # or "image/jpeg"
+    )
+
+    # Generate a pre-signed URL for secure access
+    url = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": os.getenv("AWS_S3_BUCKET_NAME"), "Key": key},
+        ExpiresIn=60 * 60  # 1 hour expiration
+    )
+    return url
+
 
 # Initialize OpenAI client (expects OPENAI_API_KEY in environment)
 client = OpenAI()
 
-OCR_CACHE_DIR = "ocr_cache"
+OCR_CACHE_DIR = os.environ.get("OCR_CACHE_DIR")
 os.makedirs(OCR_CACHE_DIR, exist_ok=True)
 
 
