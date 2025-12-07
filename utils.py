@@ -27,16 +27,12 @@ def upload_base64_image(base64_string, key, public=True):
     s3.put_object(
         Bucket=os.getenv("AWS_S3_BUCKET_NAME"),
         Key=key,
-        Body=image_bytes,
-        ContentType="image/png",  # or "image/jpeg"
+        Body=image_bytes
     )
-
-    # Generate a pre-signed URL for secure access
-    url = s3.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": os.getenv("AWS_S3_BUCKET_NAME"), "Key": key},
-        ExpiresIn=60 * 60  # 1 hour expiration
-    )
+    # Construct the public URL (no presigned URL)
+    bucket = os.getenv("AWS_S3_BUCKET_NAME")
+    region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    url = f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
     return url
 
 
