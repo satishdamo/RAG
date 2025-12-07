@@ -224,7 +224,7 @@ async def public_ask(q: str):
 
     try:
         if is_greeting(q):
-            return "Hello! How are you doing today?"
+            return {"answer": "Hello! How are you doing today?", "retrieved": []}
         else:
             result = public_qa_chain.invoke({"query": q})
             answer = result.get("result", "")
