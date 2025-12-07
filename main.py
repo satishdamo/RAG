@@ -211,6 +211,11 @@ async def preview_html(file: UploadFile = File(...), user=Depends(get_current_us
     return HTMLResponse(content=html)
 
 
+def is_greeting(query: str) -> bool:
+    greetings = ["hi", "hello", "hey", "good morning", "good evening"]
+    return query.lower().strip() in greetings
+
+
 @app.get("/public-ask/")
 async def public_ask(q: str):
     if public_qa_chain is None or public_vectordb is None:
@@ -218,12 +223,15 @@ async def public_ask(q: str):
             status_code=503, detail="Public RAG is not available. Admin must ingest documents.")
 
     try:
-        result = public_qa_chain.invoke({"query": q})
-        answer = result.get("result", "")
-        # if answer includes I don't know or similar, then no need to include snippets in the response
-        if "i don't know" in answer.lower() or "i am not sure" in answer.lower() or "i don't understand" in answer.lower():
-            return {"answer": answer, "retrieved": []}
-        docs = result.get("source_documents", [])
+        if is_greeting(q):
+            return "Hello! How are you doing today?"
+        else:
+            result = public_qa_chain.invoke({"query": q})
+            answer = result.get("result", "")
+            # if answer includes I don't know or similar, then no need to include snippets in the response
+            if "i don't know" in answer.lower() or "i am not sure" in answer.lower() or "i don't understand" in answer.lower():
+                return {"answer": answer, "retrieved": []}
+            docs = result.get("source_documents", [])
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error running public RAG: {e}")
