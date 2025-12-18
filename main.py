@@ -229,7 +229,7 @@ async def public_ask(q: str):
             result = public_qa_chain.invoke({"query": q})
             answer = result.get("result", "")
             # if answer includes I don't know or similar, then no need to include snippets in the response
-            if "i don't know" in answer.lower() or "i am not sure" in answer.lower() or "i don't understand" in answer.lower():
+            if "i don't know" in answer.lower() or "i am not sure" in answer.lower() or "i don't understand" in answer.lower() or "welcome!" in answer.lower():
                 return {"answer": answer, "retrieved": []}
             docs = result.get("source_documents", [])
     except Exception as e:
